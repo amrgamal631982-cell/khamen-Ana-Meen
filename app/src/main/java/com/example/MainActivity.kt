@@ -59,7 +59,11 @@ class MainActivity : ComponentActivity() {
 }
 
 enum class Screen {
-    Home, Wheel, Game, Score
+    Home, ModeSelection, TeamsSetup, Wheel, Game, Score
+}
+
+enum class GameMode {
+    Normal, Teams
 }
 
 @Composable
@@ -83,6 +87,53 @@ fun GameApp() {
     val playersList = remember { mutableStateListOf<String>("كليوباترا", "توت عنخ آمون", "رمسيس") }
     val playerScores = remember { mutableStateMapOf<String, Int>("كليوباترا" to 0, "توت عنخ آمون" to 0, "رمسيس" to 0) }
     var currentPlayerIndex by remember { mutableStateOf(0) }
+    
+    // Game Mode State
+    var currentGameMode by remember { mutableStateOf(GameMode.Normal) }
+    
+    // Teams score and turn tracking
+    var teamAScore by remember { mutableStateOf(0) }
+    var teamBScore by remember { mutableStateOf(0) }
+    var currentTeamTurn by remember { mutableStateOf("TeamA") } // "TeamA" or "TeamB"
+    var teamAPlayerIndex by remember { mutableStateOf(0) }
+    var teamBPlayerIndex by remember { mutableStateOf(0) }
+
+    // Custom Team Names State (With requested placeholders)
+    var teamAName by remember { mutableStateOf("فريق وسيم") }
+    var teamBName by remember { mutableStateOf("فريق مازو") }
+
+    // Dynamic lists of player names for both teams (starts with custom defaults)
+    val teamAPlayersList = remember { mutableStateListOf<String>("كليوباترا", "توت عنخ آمون") }
+    val teamBPlayersList = remember { mutableStateListOf<String>("رمسيس", "نفرتيتي") }
+
+    // Dynamic active player getter based on game mode
+    val currentActivePlayer by remember {
+        derivedStateOf {
+            if (currentGameMode == GameMode.Normal) {
+                if (playersList.isNotEmpty()) {
+                    playersList[currentPlayerIndex % playersList.size]
+                } else {
+                    "اللاعب الملكي"
+                }
+            } else {
+                if (currentTeamTurn == "TeamA") {
+                    val list = teamAPlayersList
+                    if (list.isNotEmpty()) {
+                        list[teamAPlayerIndex % list.size]
+                    } else {
+                        "لاعب $teamAName"
+                    }
+                } else {
+                    val list = teamBPlayersList
+                    if (list.isNotEmpty()) {
+                        list[teamBPlayerIndex % list.size]
+                    } else {
+                        "لاعب $teamBName"
+                    }
+                }
+            }
+        }
+    }
     
     // Track if score was credited for the current round to avoid double-adding
     var scoreCreditedForRound by remember { mutableStateOf(false) }
@@ -118,8 +169,15 @@ fun GameApp() {
         if (currentScreen == Screen.Score) {
             if (!scoreCreditedForRound) {
                 val correctCount = roundHistory.count { it.second }
-                val activePlayer = if (playersList.isNotEmpty()) playersList[currentPlayerIndex] else "لاعب"
+                val activePlayer = currentActivePlayer
                 playerScores[activePlayer] = (playerScores[activePlayer] ?: 0) + correctCount
+                if (currentGameMode == GameMode.Teams) {
+                    if (currentTeamTurn == "TeamA") {
+                        teamAScore += correctCount
+                    } else {
+                        teamBScore += correctCount
+                    }
+                }
                 scoreCreditedForRound = true
             }
         } else {
@@ -195,16 +253,84 @@ fun GameApp() {
                     onStartClick = {
                         triggerTapFeedback()
                         if (playersList.isEmpty()) {
-                            playersList.add("اللاعب الملكي")
-                            playerScores["اللاعب الملكي"] = 0
+                            playersList.addAll(listOf("كليوباترا", "توت عنخ آمون", "رمسيس"))
+                            playerScores["كليوباترا"] = 0
+                            playerScores["توت عنخ آمون"] = 0
+                            playerScores["رمسيس"] = 0
                         }
+                        currentScreen = Screen.ModeSelection
+                    }
+                )
+
+                Screen.ModeSelection -> ModeSelectionScreen(
+                    playersList = playersList,
+                    teamAPlayers = teamAPlayersList,
+                    teamBPlayers = teamBPlayersList,
+                    onModeSelected = { mode ->
+                        triggerTapFeedback()
+                        currentGameMode = mode
+                        teamAScore = 0
+                        teamBScore = 0
+                        teamAPlayerIndex = 0
+                        teamBPlayerIndex = 0
+                        currentPlayerIndex = 0
+                        currentTeamTurn = "TeamA"
+                        if (mode == GameMode.Teams) {
+                            currentScreen = Screen.TeamsSetup
+                        } else {
+                            currentScreen = Screen.Wheel
+                        }
+                    },
+                    onBack = {
+                        triggerTapFeedback()
+                        currentScreen = Screen.Home
+                    }
+                )
+
+                Screen.TeamsSetup -> TeamsSetupScreen(
+                    teamAName = teamAName,
+                    onTeamANameChange = { teamAName = it },
+                    teamBName = teamBName,
+                    onTeamBNameChange = { teamBName = it },
+                    teamAPlayers = teamAPlayersList,
+                    onAddPlayerToA = { name ->
+                        if (name.isNotBlank() && !teamAPlayersList.contains(name)) {
+                            teamAPlayersList.add(name)
+                            playerScores[name] = 0
+                        }
+                    },
+                    onRemovePlayerFromA = { name ->
+                        teamAPlayersList.remove(name)
+                        playerScores.remove(name)
+                    },
+                    teamBPlayers = teamBPlayersList,
+                    onAddPlayerToB = { name ->
+                        if (name.isNotBlank() && !teamBPlayersList.contains(name)) {
+                            teamBPlayersList.add(name)
+                            playerScores[name] = 0
+                        }
+                    },
+                    onRemovePlayerFromB = { name ->
+                        teamBPlayersList.remove(name)
+                        playerScores.remove(name)
+                    },
+                    onStartGame = {
+                        triggerTapFeedback()
                         currentScreen = Screen.Wheel
+                    },
+                    onBack = {
+                        triggerTapFeedback()
+                        currentScreen = Screen.ModeSelection
                     }
                 )
                 
                 Screen.Wheel -> WheelScreen(
                     activePools = activePools,
-                    currentPlayerName = if (playersList.isNotEmpty()) playersList[currentPlayerIndex] else "اللاعب",
+                    currentPlayerName = currentActivePlayer,
+                    currentGameMode = currentGameMode,
+                    currentTeamTurn = currentTeamTurn,
+                    teamAName = teamAName,
+                    teamBName = teamBName,
                     onCategorySelected = { category ->
                         selectedCategory = category
                     },
@@ -219,7 +345,11 @@ fun GameApp() {
                     },
                     onBack = {
                         triggerTapFeedback()
-                        currentScreen = Screen.Home
+                        if (currentGameMode == GameMode.Teams) {
+                            currentScreen = Screen.TeamsSetup
+                        } else {
+                            currentScreen = Screen.ModeSelection
+                        }
                     }
                 )
                 
@@ -227,7 +357,11 @@ fun GameApp() {
                     category = selectedCategory ?: GameData.categories.first(),
                     currentWord = currentWord,
                     timeLeft = timeLeft,
-                    currentPlayerName = if (playersList.isNotEmpty()) playersList[currentPlayerIndex] else "اللاعب",
+                    currentPlayerName = currentActivePlayer,
+                    currentGameMode = currentGameMode,
+                    currentTeamTurn = currentTeamTurn,
+                    teamAName = teamAName,
+                    teamBName = teamBName,
                     onCorrect = {
                         triggerSuccessFeedback()
                         SoundHelper.playCorrectSound()
@@ -254,14 +388,31 @@ fun GameApp() {
                 Screen.Score -> ScoreScreen(
                     category = selectedCategory ?: GameData.categories.first(),
                     roundHistory = roundHistory,
-                    currentPlayerName = if (playersList.isNotEmpty()) playersList[currentPlayerIndex] else "اللاعب",
+                    currentPlayerName = currentActivePlayer,
                     playerScores = playerScores,
                     playersList = playersList,
+                    currentGameMode = currentGameMode,
+                    currentTeamTurn = currentTeamTurn,
+                    teamAScore = teamAScore,
+                    teamBScore = teamBScore,
+                    teamAPlayers = teamAPlayersList,
+                    teamBPlayers = teamBPlayersList,
+                    teamAName = teamAName,
+                    teamBName = teamBName,
                     onPlayAgain = {
                         triggerTapFeedback()
-                        // Rotate to next player
-                        if (playersList.isNotEmpty()) {
-                            currentPlayerIndex = (currentPlayerIndex + 1) % playersList.size
+                        if (currentGameMode == GameMode.Normal) {
+                            if (playersList.isNotEmpty()) {
+                                currentPlayerIndex = (currentPlayerIndex + 1) % playersList.size
+                            }
+                        } else {
+                            if (currentTeamTurn == "TeamA") {
+                                currentTeamTurn = "TeamB"
+                                teamAPlayerIndex++
+                            } else {
+                                currentTeamTurn = "TeamA"
+                                teamBPlayerIndex++
+                            }
                         }
                         currentScreen = Screen.Wheel
                     },
@@ -647,12 +798,294 @@ fun ElegantLogoCanvas() {
 }
 
 // ==========================================
+// SCREEN 1.5: MODE SELECTION SCREEN (EGYPTIAN THEME)
+// ==========================================
+@Composable
+fun ModeSelectionScreen(
+    playersList: List<String>,
+    teamAPlayers: List<String>,
+    teamBPlayers: List<String>,
+    teamAName: String = "فريق وسيم",
+    teamBName: String = "فريق مازو",
+    onModeSelected: (GameMode) -> Unit,
+    onBack: () -> Unit
+) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = 600.dp)
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item {
+                Spacer(modifier = Modifier.height(30.dp))
+                
+                // Back Button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Start
+                ) {
+                    IconButton(onClick = { onBack() }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "رجوع",
+                            tint = AccentLapis
+                        )
+                    }
+                }
+            }
+
+            item {
+                // Screen Title
+                Text(
+                    text = "بوابة اختيار التحدي 🏛️",
+                    style = TextStyle(
+                        color = AccentLapis,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Black,
+                        textAlign = TextAlign.Center
+                    )
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "اختر وضع اللعب الفرعوني لبدء المعركة الكبرى",
+                    style = TextStyle(
+                        color = TextLightBrown,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center
+                    )
+                )
+            }
+
+            // MODE 1: NORMAL MODE CARD
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.5.dp, AccentGold, RoundedCornerShape(24.dp))
+                        .clickable { onModeSelected(GameMode.Normal) },
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Icon Area
+                        Box(
+                            modifier = Modifier
+                                .size(60.dp)
+                                .background(AccentLapis.copy(alpha = 0.1f), CircleShape)
+                                .border(1.5.dp, AccentGold, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = "👑", fontSize = 28.sp)
+                        }
+
+                        // Text Area
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "الوضع العادي (الملوك الفردي)",
+                                style = TextStyle(
+                                    color = AccentLapis,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Right
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "كل ملك يحارب بمفرده ويجمع النقاط الذهبية لتتويجه على العرش.",
+                                style = TextStyle(
+                                    color = TextMediumBrown,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Normal,
+                                    textAlign = TextAlign.Right
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            // MODE 2: TEAMS MODE CARD
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.5.dp, AccentGold, RoundedCornerShape(24.dp))
+                        .clickable { onModeSelected(GameMode.Teams) },
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            // Icon Area
+                            Box(
+                                modifier = Modifier
+                                    .size(60.dp)
+                                    .background(AccentTurquoise.copy(alpha = 0.1f), CircleShape)
+                                    .border(1.5.dp, AccentGold, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(text = "⚔️", fontSize = 28.sp)
+                            }
+
+                            // Text Area
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "وضع فريق ضد فريق (التحالف الفرعوني)",
+                                    style = TextStyle(
+                                        color = AccentLapis,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Right
+                                    )
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "يتنافس تحالف حورس وتحالف أنوبيس في جولات متناوبة لحصد المجد.",
+                                    style = TextStyle(
+                                        color = TextMediumBrown,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Normal,
+                                        textAlign = TextAlign.Right
+                                    )
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Divider(color = DividerWarm)
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Team Preview Lists (Incredibly responsive & immersive design)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // Team A Card Preview
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(BgCreamLight, RoundedCornerShape(12.dp))
+                                    .border(1.dp, AccentGold.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                    .padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "🦅 $teamAName",
+                                    style = TextStyle(
+                                        color = AccentLapis,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                if (teamAPlayers.isNotEmpty()) {
+                                    teamAPlayers.forEach { player ->
+                                        Text(
+                                            text = player,
+                                            style = TextStyle(
+                                                color = TextDeepCoffee,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Medium
+                                            ),
+                                            maxLines = 1
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                        text = "شاغر",
+                                        style = TextStyle(
+                                            color = Color.Gray,
+                                            fontSize = 11.sp
+                                        )
+                                    )
+                                }
+                            }
+
+                            // Team B Card Preview
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(BgCreamLight, RoundedCornerShape(12.dp))
+                                    .border(1.dp, AccentGold.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                    .padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "🐺 $teamBName",
+                                    style = TextStyle(
+                                        color = AccentClay,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                if (teamBPlayers.isNotEmpty()) {
+                                    teamBPlayers.forEach { player ->
+                                        Text(
+                                            text = player,
+                                            style = TextStyle(
+                                                color = TextDeepCoffee,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Medium
+                                            ),
+                                            maxLines = 1
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                        text = "شاغر",
+                                        style = TextStyle(
+                                            color = Color.Gray,
+                                            fontSize = 11.sp
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            item {
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+        }
+    }
+}
+
+// ==========================================
 // SCREEN 2: MYSTERIOUS FORTUNE WHEEL SCREEN
 // ==========================================
 @Composable
 fun WheelScreen(
     activePools: Map<Int, List<String>>,
     currentPlayerName: String,
+    currentGameMode: GameMode = GameMode.Normal,
+    currentTeamTurn: String = "TeamA",
+    teamAName: String = "فريق وسيم",
+    teamBName: String = "فريق مازو",
     onCategorySelected: (Category) -> Unit,
     onStartGame: (Category) -> Unit,
     onBack: () -> Unit
@@ -736,8 +1169,14 @@ fun WheelScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(text = "👑", fontSize = 16.sp)
+                    val turnLabel = if (currentGameMode == GameMode.Teams) {
+                        val activeTeamName = if (currentTeamTurn == "TeamA") teamAName else teamBName
+                        "دور $activeTeamName: $currentPlayerName"
+                    } else {
+                        "الملك الحالي: $currentPlayerName"
+                    }
                     Text(
-                        text = "الملك الحالي: $currentPlayerName",
+                        text = turnLabel,
                         style = TextStyle(
                             color = TextDeepCoffee,
                             fontSize = 16.sp,
@@ -1100,6 +1539,10 @@ fun GameplayScreen(
     currentWord: String,
     timeLeft: Int,
     currentPlayerName: String,
+    currentGameMode: GameMode = GameMode.Normal,
+    currentTeamTurn: String = "TeamA",
+    teamAName: String = "فريق وسيم",
+    teamBName: String = "فريق مازو",
     onCorrect: () -> Unit,
     onSkip: () -> Unit,
     onEndGame: () -> Unit
@@ -1141,8 +1584,14 @@ fun GameplayScreen(
 
                 // Central Category & Player Pill
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    val turnLabel = if (currentGameMode == GameMode.Teams) {
+                        val activeTeam = if (currentTeamTurn == "TeamA") teamAName else teamBName
+                        "دور: $activeTeam 👑 ($currentPlayerName)"
+                    } else {
+                        "جولة الملك: $currentPlayerName"
+                    }
                     Text(
-                        text = "جولة الملك: $currentPlayerName",
+                        text = turnLabel,
                         style = TextStyle(
                             color = AccentGold,
                             fontSize = 13.sp,
@@ -1181,8 +1630,14 @@ fun GameplayScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
+                    val instructText = if (currentGameMode == GameMode.Teams) {
+                        val activeTeam = if (currentTeamTurn == "TeamA") teamAName else teamBName
+                        "اشرح الكلمة لـ $currentPlayerName من $activeTeam ليربح!"
+                    } else {
+                        "اشرح الكلمة التالية لـ $currentPlayerName ليربح!"
+                    }
                     Text(
-                        text = "اشرح الكلمة التالية لـ $currentPlayerName ليربح!",
+                        text = instructText,
                         style = TextStyle(
                             color = TextLightBrown,
                             fontSize = 14.sp,
@@ -1359,6 +1814,14 @@ fun ScoreScreen(
     currentPlayerName: String,
     playerScores: Map<String, Int>,
     playersList: List<String>,
+    currentGameMode: GameMode,
+    currentTeamTurn: String,
+    teamAScore: Int,
+    teamBScore: Int,
+    teamAPlayers: List<String>,
+    teamBPlayers: List<String>,
+    teamAName: String = "فريق وسيم",
+    teamBName: String = "فريق مازو",
     onPlayAgain: () -> Unit,
     onHome: () -> Unit
 ) {
@@ -1494,6 +1957,107 @@ fun ScoreScreen(
                 }
             }
 
+            // TEAMS STANDINGS (If GameMode.Teams is active)
+            if (currentGameMode == GameMode.Teams) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.White, RoundedCornerShape(24.dp))
+                            .border(1.5.dp, AccentGold, RoundedCornerShape(24.dp))
+                            .padding(18.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "⚔️ مجموع نقاط التحالفات",
+                            style = TextStyle(
+                                color = AccentLapis,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
+                        
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Team A Info
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(50.dp)
+                                        .background(AccentLapis.copy(alpha = 0.1f), CircleShape)
+                                        .border(1.dp, AccentGold, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(text = "🦅", fontSize = 22.sp)
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = teamAName,
+                                    style = TextStyle(
+                                        color = AccentLapis,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                                Text(
+                                    text = "$teamAScore نقطة",
+                                    style = TextStyle(
+                                        color = TextDeepCoffee,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                )
+                            }
+
+                            // VS Divider
+                            Text(
+                                text = "ضد",
+                                style = TextStyle(
+                                    color = AccentGold,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            )
+
+                            // Team B Info
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(50.dp)
+                                        .background(AccentClay.copy(alpha = 0.1f), CircleShape)
+                                        .border(1.dp, AccentGold, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(text = "🐺", fontSize = 22.sp)
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = teamBName,
+                                    style = TextStyle(
+                                        color = AccentClay,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                                Text(
+                                    text = "$teamBScore نقطة",
+                                    style = TextStyle(
+                                        color = TextDeepCoffee,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // MULTIPLAYER SCOREBOARD (جدول الصدارة الحالي)
             item {
                 Column(
@@ -1504,7 +2068,7 @@ fun ScoreScreen(
                         .padding(18.dp)
                 ) {
                     Text(
-                        text = "🏆 لوحة الصدارة الملكية",
+                        text = if (currentGameMode == GameMode.Teams) "🏆 تفاصيل صدارة الملوك في التحالف" else "🏆 لوحة الصدارة الملكية",
                         style = TextStyle(
                             color = AccentLapis,
                             fontSize = 16.sp,
@@ -1526,6 +2090,11 @@ fun ScoreScreen(
                         
                         val isSelf = player == currentPlayerName
                         
+                        // Check which team the player belongs to
+                        val teamSuffix = if (currentGameMode == GameMode.Teams) {
+                            if (teamAPlayers.contains(player)) " 🦅" else " 🐺"
+                        } else ""
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1548,7 +2117,7 @@ fun ScoreScreen(
                             
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = player,
+                                    text = "$player$teamSuffix",
                                     style = TextStyle(
                                         color = if (isSelf) AccentLapis else TextDeepCoffee,
                                         fontSize = 15.sp,
@@ -1592,6 +2161,13 @@ fun ScoreScreen(
                         )
                     }
 
+                    // Dynamic next team or player button text
+                    val buttonText = if (currentGameMode == GameMode.Teams) {
+                        if (currentTeamTurn == "TeamA") "انتقال إلى دور $teamBName 🎮" else "انتقال إلى دور $teamAName 🎮"
+                    } else {
+                        "الملك التالي 🎮"
+                    }
+
                     Box(
                         modifier = Modifier
                             .weight(1.3f)
@@ -1607,15 +2183,416 @@ fun ScoreScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "الملك التالي 🎮",
+                            text = buttonText,
                             style = TextStyle(
                                 color = Color.White,
-                                fontSize = 16.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+// ==========================================
+// SCREEN 1.7: TEAMS SETUP SCREEN (DYNAMIC LIST BUILDER)
+// ==========================================
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TeamsSetupScreen(
+    teamAName: String,
+    onTeamANameChange: (String) -> Unit,
+    teamBName: String,
+    onTeamBNameChange: (String) -> Unit,
+    teamAPlayers: List<String>,
+    onAddPlayerToA: (String) -> Unit,
+    onRemovePlayerFromA: (String) -> Unit,
+    teamBPlayers: List<String>,
+    onAddPlayerToB: (String) -> Unit,
+    onRemovePlayerFromB: (String) -> Unit,
+    onStartGame: () -> Unit,
+    onBack: () -> Unit
+) {
+    var playerInputA by remember { mutableStateOf("") }
+    var playerInputB by remember { mutableStateOf("") }
+    val view = LocalView.current
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = 600.dp)
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item {
+                Spacer(modifier = Modifier.height(30.dp))
+                
+                // Back Button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Start
+                ) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier
+                            .background(Color.White, CircleShape)
+                            .border(1.dp, DividerWarm, CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "رجوع",
+                            tint = AccentLapis
+                        )
+                    }
+                }
+            }
+
+            item {
+                // Header Title in Pharaonic Style
+                Text(
+                    text = "⚔️ إعداد كتائب الحرب",
+                    style = TextStyle(
+                        color = AccentLapis,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Black,
+                        textAlign = TextAlign.Center
+                    )
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "قم بتسمية تحالفاتك وتعبئتها بالفرسان البواسل",
+                    style = TextStyle(
+                        color = TextLightBrown,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center
+                    )
+                )
+            }
+
+            // TEAM A CARD (Horus style)
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.5.dp, AccentGold, RoundedCornerShape(24.dp)),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Header
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("🦅", fontSize = 24.sp)
+                            Text(
+                                text = "تحالف حورس الأول (أ)",
+                                style = TextStyle(
+                                    color = AccentLapis,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                        }
+
+                        // Team Name Input
+                        OutlinedTextField(
+                            value = teamAName,
+                            onValueChange = onTeamANameChange,
+                            placeholder = { Text("فريق وسيم") },
+                            label = { Text("اسم التحالف الأول", color = TextLightBrown) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AccentGold,
+                                unfocusedBorderColor = DividerWarm,
+                                focusedLabelColor = AccentGold,
+                                unfocusedLabelColor = TextLightBrown
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "فرسان التحالف:",
+                            style = TextStyle(color = TextMediumBrown, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        )
+
+                        // Add Player Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = playerInputA,
+                                onValueChange = { playerInputA = it },
+                                placeholder = { Text("اسم الفارس") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = AccentLapis,
+                                    unfocusedBorderColor = DividerWarm
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            Button(
+                                onClick = {
+                                    if (playerInputA.isNotBlank()) {
+                                        onAddPlayerToA(playerInputA.trim())
+                                        playerInputA = ""
+                                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                        SoundHelper.playClickSound()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = AccentLapis),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("إضافة", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        // Display player list for Team A
+                        if (teamAPlayers.isEmpty()) {
+                            Text(
+                                text = "لا يوجد فرسان مضافين بعد.",
+                                style = TextStyle(color = Color.Gray, fontSize = 12.sp, textAlign = TextAlign.Center),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp)
+                            )
+                        } else {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                teamAPlayers.forEach { player ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(BgCreamLight, RoundedCornerShape(8.dp))
+                                            .border(0.5.dp, AccentGold.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = player,
+                                            style = TextStyle(color = TextDeepCoffee, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                        )
+                                        IconButton(
+                                            onClick = {
+                                                onRemovePlayerFromA(player)
+                                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                                SoundHelper.playSkipSound()
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "حذف",
+                                                tint = AccentClay,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // TEAM B CARD (Anubis style)
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.5.dp, AccentGold, RoundedCornerShape(24.dp)),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Header
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("🐺", fontSize = 24.sp)
+                            Text(
+                                text = "تحالف أنوبيس الثاني (ب)",
+                                style = TextStyle(
+                                    color = AccentClay,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                        }
+
+                        // Team Name Input
+                        OutlinedTextField(
+                            value = teamBName,
+                            onValueChange = onTeamBNameChange,
+                            placeholder = { Text("فريق مازو") },
+                            label = { Text("اسم التحالف الثاني", color = TextLightBrown) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AccentGold,
+                                unfocusedBorderColor = DividerWarm,
+                                focusedLabelColor = AccentGold,
+                                unfocusedLabelColor = TextLightBrown
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "فرسان التحالف:",
+                            style = TextStyle(color = TextMediumBrown, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        )
+
+                        // Add Player Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = playerInputB,
+                                onValueChange = { playerInputB = it },
+                                placeholder = { Text("اسم الفارس") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = AccentClay,
+                                    unfocusedBorderColor = DividerWarm
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            Button(
+                                onClick = {
+                                    if (playerInputB.isNotBlank()) {
+                                        onAddPlayerToB(playerInputB.trim())
+                                        playerInputB = ""
+                                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                        SoundHelper.playClickSound()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = AccentClay),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("إضافة", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        // Display player list for Team B
+                        if (teamBPlayers.isEmpty()) {
+                            Text(
+                                text = "لا يوجد فرسان مضافين بعد.",
+                                style = TextStyle(color = Color.Gray, fontSize = 12.sp, textAlign = TextAlign.Center),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp)
+                            )
+                        } else {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                teamBPlayers.forEach { player ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(BgCreamLight, RoundedCornerShape(8.dp))
+                                            .border(0.5.dp, AccentGold.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = player,
+                                            style = TextStyle(color = TextDeepCoffee, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                        )
+                                        IconButton(
+                                            onClick = {
+                                                onRemovePlayerFromB(player)
+                                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                                SoundHelper.playSkipSound()
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "حذف",
+                                                tint = AccentClay,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // START BUTTON
+            item {
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                Button(
+                    onClick = {
+                        // Make sure we have at least 1 player on each team for standard game experience
+                        if (teamAPlayers.isEmpty()) {
+                            onAddPlayerToA("حورس الذكي")
+                        }
+                        if (teamBPlayers.isEmpty()) {
+                            onAddPlayerToB("أنوبيس القوي")
+                        }
+                        onStartGame()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .border(1.5.dp, AccentGold, RoundedCornerShape(28.dp)),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentLapis
+                    ),
+                    shape = RoundedCornerShape(28.dp)
+                ) {
+                    Text(
+                        text = "ابدأ التحدي الملكي ⚔️",
+                        style = TextStyle(
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(40.dp))
             }
         }
     }
