@@ -1,0 +1,6 @@
+{
+  "name": "لعبة خمن أنا مين؟",
+  "description": "لعبة خمن أنا مين؟ - لعبة جماعية مصرية تعتمد على تخمين الشخصيات والأكلات والأفلام والجماد والمعالم السياحية والرياضية والحيوانات بطريقة مسلية وحماسية.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
